@@ -1,0 +1,66 @@
+{
+  "name": "site-check-pro",
+  "version": "0.1.7",
+  "description": "Framework-agnostic website inspection, live progress, and reports powered by Playwright.",
+  "type": "module",
+  "bin": {
+    "site-check-pro": "./dist/cli.js"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md"
+  ],
+  "scripts": {
+    "clean": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\"",
+    "build": "tsup",
+    "dev": "tsx src/cli.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test",
+    "check": "npm run typecheck && npm run build && npm test",
+    "prepack": "npm run check"
+  },
+  "keywords": [
+    "playwright",
+    "website",
+    "audit",
+    "smoke-test",
+    "crawler",
+    "monitoring",
+    "react",
+    "vue",
+    "vanilla-js"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "commander": "^14.0.0",
+    "jiti": "^2.5.1",
+    "picocolors": "^1.1.1",
+    "playwright": "^1.61.1",
+    "zod": "^4.0.5"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.15",
+    "tsup": "^8.5.0",
+    "tsx": "^4.20.3",
+    "typescript": "^5.8.3"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "overrides": {
+    "esbuild": "^0.28.1"
+  }
+}
