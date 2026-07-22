@@ -16,6 +16,7 @@
   },
   "files": [
     "dist",
+    "public",
     "README.md",
     "LICENSE",
     "CHANGELOG.md"

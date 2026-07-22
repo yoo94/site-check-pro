@@ -1,9 +1,7 @@
 import pc from 'picocolors';
 import { Command } from 'commander';
 import { loadConfig, resolveConfig } from './config.js';
-import { runAudit } from './core/runner.js';
-import { AuditEventBus } from './core/eventBus.js';
-import { startDashboard } from './dashboard/server.js';
+import { startControlDashboard } from './dashboard/controlServer.js';
 import { openBrowser } from './cli/openBrowser.js';
 import { initProject } from './cli/init.js';
 import { resolveReportPath } from './cli/report.js';
@@ -98,13 +96,12 @@ program.command('init')
       );
     }
 
-    console.log(`Next: ${pc.cyan('npx site-check-pro run --ui')}`);
+    console.log(`Next: ${pc.cyan('npx site-check-pro run')}`);
   });
 
 program.command('run')
   .argument('[url]', 'override base URL')
   .option('-c, --config <path>', 'config file', 'site-check-pro.config.ts')
-  .option('--ui', 'enable live dashboard')
   .option('--headed', 'show browser windows')
   .option('--browser <names>', 'comma-separated chromium,firefox,webkit')
   .option('-y, --yes', 'install missing configured browsers without confirmation')
@@ -119,41 +116,31 @@ program.command('run')
       ...(url ? { baseURL: url } : {}),
       ...(options.headed ? { headless: false } : {}),
       browsers,
-      dashboard: { ...loaded.dashboard, enabled: Boolean(options.ui) || loaded.dashboard.enabled },
     });
 
     await ensureBrowsers(config.browsers, { assumeYes: Boolean(options.yes) });
 
-    const eventBus = new AuditEventBus();
-    let runDir: string | undefined;
-    let dashboard: Awaited<ReturnType<typeof startDashboard>> | undefined;
-    if (config.dashboard.enabled) {
-      dashboard = await startDashboard({
-        port: config.dashboard.port,
-        baseURL: config.baseURL,
-        eventBus,
-        getRunDir: () => runDir,
-      });
-      console.log(pc.cyan(`Live dashboard: ${dashboard.url}`));
-      if (config.dashboard.open) openBrowser(dashboard.url);
-    }
+    const dashboard = await startControlDashboard({
+      port: config.dashboard.port,
+      config,
+      browsers,
+      headed: Boolean(options.headed),
+    });
+    console.log(pc.cyan(`Site Check Pro: ${dashboard.url}`));
+    if (config.dashboard.open) openBrowser(dashboard.url);
 
-    try {
-      const result = await runAudit(config, eventBus);
-      runDir = result.runDir;
-      console.log(pc.bold('\nSite Check Pro completed'));
-      console.log(`Report: ${pc.cyan(`${result.runDir}/index.html`)}`);
-      console.log(`Checks: ${result.summary.completedChecks}, failed: ${pc.red(String(result.summary.failedChecks))}, affected: ${result.summary.affectedRouteRate}%`);
-      console.log(`Open later: ${pc.cyan(`npx site-check-pro report open "${result.runDir}"`)}`);
-      process.exitCode = result.summary.failedChecks > 0 ? 1 : 0;
-    } finally {
-      if (dashboard) await dashboard.close();
-    }
+    await new Promise<void>((resolve) => {
+      const close = () => {
+        void dashboard.close().finally(resolve);
+      };
+      process.once('SIGINT', close);
+      process.once('SIGTERM', close);
+    });
   });
 
 program.command('auth')
   .description('capture an authenticated browser state')
-  .argument('<profile>', 'profile name, e.g. member or admin')
+  .argument('[profile]', 'profile name, e.g. member or admin', 'member')
   .option('-c, --config <path>', 'config file', 'site-check-pro.config.ts')
   .option('--url <url>', 'login URL')
   .option('-y, --yes', 'install Chromium without confirmation when missing')
@@ -161,7 +148,9 @@ program.command('auth')
     await ensureBrowsers(['chromium'], { assumeYes: Boolean(options.yes) });
     const config = await loadConfig(options.config);
     const saved = await captureAuth(config, profile, options.url);
-    console.log(pc.green(`Saved auth state: ${saved}`));
+    console.log(pc.green(`Saved auth state: ${saved.authPath}`));
+    console.log(pc.cyan(`Profile manifest: ${saved.manifestPath}`));
+    console.log(`Config profile: ${pc.cyan(`${saved.profile}: { storageState: '${saved.configStorageState}', seeds: ['/'] }`)}`);
   });
 
 const report = program.command('report').description('open generated reports');
