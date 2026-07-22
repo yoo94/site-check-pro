@@ -12,3 +12,27 @@ test('resolves framework-agnostic defaults', () => {
   assert.equal(config.dashboard.enabled, false);
   assert.deepEqual(config.crawl.linkAttributes, ['href', 'data-href', 'data-route', 'data-url']);
 });
+
+test('resolves profile-specific exclude patterns', () => {
+  const config = resolveConfig(defineConfig({
+    baseURL: 'http://localhost:3000/',
+    profiles: {
+      guest: {
+        seeds: ['/'],
+        exclude: ['/member/**'],
+      },
+      member: {
+        seeds: ['/'],
+        storageState: '.site-check-pro/auth/member.json',
+        exclude: ['/login', '/signup'],
+      },
+    },
+    crawl: {
+      exclude: ['/logout'],
+    },
+  }));
+
+  assert.deepEqual(config.crawl.exclude, ['/logout']);
+  assert.deepEqual(config.profiles.guest.exclude, ['/member/**']);
+  assert.deepEqual(config.profiles.member.exclude, ['/login', '/signup']);
+});

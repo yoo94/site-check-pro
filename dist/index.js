@@ -22,7 +22,8 @@ var configSchema = z.object({
   }).optional(),
   profiles: z.record(z.string(), z.object({
     storageState: z.string().optional(),
-    seeds: z.array(z.string()).optional()
+    seeds: z.array(z.string()).optional(),
+    exclude: z.array(z.string()).optional()
   })).optional(),
   crawl: z.object({
     maxPages: z.number().int().positive().optional(),
@@ -207,7 +208,7 @@ function matchesAny(value, patterns) {
 
 // src/utils/url.ts
 var BLOCKED_PROTOCOLS = /* @__PURE__ */ new Set(["mailto:", "tel:", "javascript:", "data:"]);
-function normalizeUrl(raw, currentURL, config) {
+function normalizeUrl(raw, currentURL, config, profileExclude = []) {
   try {
     const url = new URL(raw, currentURL);
     const base = new URL(config.baseURL);
@@ -218,7 +219,7 @@ function normalizeUrl(raw, currentURL, config) {
     url.searchParams.sort();
     const pathname = url.pathname || "/";
     if (!matchesAny(pathname, config.crawl.include)) return null;
-    if (matchesAny(pathname, config.crawl.exclude)) return null;
+    if (matchesAny(pathname, [...config.crawl.exclude, ...profileExclude])) return null;
     return url.toString();
   } catch {
     return null;
@@ -229,7 +230,7 @@ function normalizeUrl(raw, currentURL, config) {
 function ignored(url, patterns) {
   return patterns.some((pattern) => url.includes(pattern));
 }
-async function collectLinks(page, config) {
+async function collectLinks(page, config, profileExclude) {
   const hrefs = /* @__PURE__ */ new Set();
   for (const selector of config.crawl.selectors) {
     const values = await page.locator(selector).evaluateAll(
@@ -246,10 +247,11 @@ async function collectLinks(page, config) {
     ).catch(() => []);
     for (const value of values) hrefs.add(value);
   }
-  return [...hrefs].map((href) => normalizeUrl(href, page.url(), config)).filter((value) => Boolean(value));
+  return [...hrefs].map((href) => normalizeUrl(href, page.url(), config, profileExclude)).filter((value) => Boolean(value));
 }
 async function auditPage(input) {
   const { runId, route, browser, profile, context, config, eventBus, artifactsDir } = input;
+  const profileExclude = config.profiles[profile]?.exclude ?? [];
   const page = await context.newPage();
   const checks = [];
   const consoleErrors = [];
@@ -366,7 +368,7 @@ async function auditPage(input) {
         message: error instanceof Error ? error.message : String(error)
       }));
     }
-    discoveredLinks = await collectLinks(page, config);
+    discoveredLinks = await collectLinks(page, config, profileExclude);
     const consoleStarted = startCheck("console errors");
     const consoleFailed = config.checks.failOnConsoleError && (consoleErrors.length > 0 || pageErrors.length > 0);
     pageFailed ||= consoleFailed;

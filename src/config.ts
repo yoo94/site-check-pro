@@ -24,6 +24,7 @@ const configSchema = z.object({
   profiles: z.record(z.string(), z.object({
     storageState: z.string().optional(),
     seeds: z.array(z.string()).optional(),
+    exclude: z.array(z.string()).optional(),
   })).optional(),
   crawl: z.object({
     maxPages: z.number().int().positive().optional(),

@@ -7,6 +7,7 @@ export function normalizeUrl(
   raw: string,
   currentURL: string,
   config: ResolvedSiteCheckProConfig,
+  profileExclude: string[] = [],
 ): string | null {
   try {
     const url = new URL(raw, currentURL);
@@ -21,7 +22,7 @@ export function normalizeUrl(
 
     const pathname = url.pathname || '/';
     if (!matchesAny(pathname, config.crawl.include)) return null;
-    if (matchesAny(pathname, config.crawl.exclude)) return null;
+    if (matchesAny(pathname, [...config.crawl.exclude, ...profileExclude])) return null;
 
     return url.toString();
   } catch {

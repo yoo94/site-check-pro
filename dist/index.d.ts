@@ -7,6 +7,7 @@ type CheckCategory = 'browser' | 'authentication' | 'navigation' | 'render' | 'c
 interface AuthProfileConfig {
     storageState?: string;
     seeds?: string[];
+    exclude?: string[];
 }
 interface ApiCheckConfig {
     name: string;

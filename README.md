@@ -82,6 +82,17 @@ import { defineConfig } from 'site-check-pro';
 export default defineConfig({
   baseURL: 'https://example.com',
   browsers: ['chromium'],
+  profiles: {
+    guest: {
+      seeds: ['/'],
+      exclude: ['/mypage/**'],
+    },
+    member: {
+      storageState: '.site-check-pro/auth/member.json',
+      seeds: ['/'],
+      exclude: ['/login', '/signup'],
+    },
+  },
 
   // 로컬 개발 서버를 함께 띄워야 하는 경우 사용합니다.
   // webServer: {
@@ -110,7 +121,8 @@ export default defineConfig({
 });
 ```
 
-`baseURL`, `crawl.exclude`, `checks` 같은 값은 코드에 하드코딩하지 않고 설정 파일에서 관리하는 방식이 기본입니다.
+`baseURL`, `crawl.exclude`, `profiles.*.exclude`, `checks` 같은 값은 코드에 하드코딩하지 않고 설정 파일에서 관리하는 방식이 기본입니다.
+`crawl.exclude`는 모든 프로필에 공통으로 적용되고, `profiles.guest.exclude`처럼 프로필 안에 둔 exclude는 해당 프로필 탐색에만 적용됩니다.
 
 ## 로그인 정보 저장
 

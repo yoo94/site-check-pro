@@ -15,6 +15,7 @@ export type CheckCategory =
 export interface AuthProfileConfig {
   storageState?: string;
   seeds?: string[];
+  exclude?: string[];
 }
 
 export interface ApiCheckConfig {

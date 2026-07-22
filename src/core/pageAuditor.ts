@@ -21,7 +21,7 @@ function ignored(url: string, patterns: string[]): boolean {
   return patterns.some((pattern) => url.includes(pattern));
 }
 
-async function collectLinks(page: Page, config: ResolvedSiteCheckProConfig): Promise<string[]> {
+async function collectLinks(page: Page, config: ResolvedSiteCheckProConfig, profileExclude: string[]): Promise<string[]> {
   const hrefs = new Set<string>();
   for (const selector of config.crawl.selectors) {
     const values = await page.locator(selector).evaluateAll((nodes, attributes) =>
@@ -40,12 +40,13 @@ async function collectLinks(page: Page, config: ResolvedSiteCheckProConfig): Pro
   }
 
   return [...hrefs]
-    .map((href) => normalizeUrl(href, page.url(), config))
+    .map((href) => normalizeUrl(href, page.url(), config, profileExclude))
     .filter((value): value is string => Boolean(value));
 }
 
 export async function auditPage(input: AuditPageInput): Promise<RouteResult> {
   const { runId, route, browser, profile, context, config, eventBus, artifactsDir } = input;
+  const profileExclude = config.profiles[profile]?.exclude ?? [];
   const page = await context.newPage();
   const checks: CheckResult[] = [];
   const consoleErrors: string[] = [];
@@ -142,7 +143,7 @@ export async function auditPage(input: AuditPageInput): Promise<RouteResult> {
       }));
     }
 
-    discoveredLinks = await collectLinks(page, config);
+    discoveredLinks = await collectLinks(page, config, profileExclude);
 
     const consoleStarted = startCheck('console errors');
     const consoleFailed = config.checks.failOnConsoleError && (consoleErrors.length > 0 || pageErrors.length > 0);
