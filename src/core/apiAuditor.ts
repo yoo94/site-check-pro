@@ -6,13 +6,17 @@ export async function auditApis(
   runId: string,
   config: ResolvedSiteCheckProConfig,
   eventBus: AuditEventBus,
+  signal?: AbortSignal,
 ): Promise<CheckResult[]> {
   const results: CheckResult[] = [];
 
   for (const api of config.api) {
+    if (signal?.aborted) break;
     eventBus.publish({ type: 'check.started', runId, route: api.url, browser: 'node', profile: 'api', check: api.name });
     const startedAt = Date.now();
     const controller = new AbortController();
+    const abort = () => controller.abort();
+    signal?.addEventListener('abort', abort, { once: true });
     const timer = setTimeout(() => controller.abort(), api.timeoutMs ?? 5_000);
 
     try {
@@ -58,6 +62,7 @@ export async function auditApis(
       eventBus.publish({ type: 'check.finished', runId, result });
     } finally {
       clearTimeout(timer);
+      signal?.removeEventListener('abort', abort);
     }
   }
 

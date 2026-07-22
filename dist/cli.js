@@ -681,12 +681,15 @@ async function auditPage(input) {
 }
 
 // src/core/apiAuditor.ts
-async function auditApis(runId, config, eventBus) {
+async function auditApis(runId, config, eventBus, signal) {
   const results = [];
   for (const api of config.api) {
+    if (signal?.aborted) break;
     eventBus.publish({ type: "check.started", runId, route: api.url, browser: "node", profile: "api", check: api.name });
     const startedAt = Date.now();
     const controller = new AbortController();
+    const abort = () => controller.abort();
+    signal?.addEventListener("abort", abort, { once: true });
     const timer = setTimeout(() => controller.abort(), api.timeoutMs ?? 5e3);
     try {
       const response = await fetch(api.url, {
@@ -731,6 +734,7 @@ async function auditApis(runId, config, eventBus) {
       eventBus.publish({ type: "check.finished", runId, result });
     } finally {
       clearTimeout(timer);
+      signal?.removeEventListener("abort", abort);
     }
   }
   return results;
@@ -754,6 +758,7 @@ function createSummary(input) {
   return {
     runId,
     baseURL,
+    status: input.status ?? "completed",
     startedAt: new Date(startedAt).toISOString(),
     finishedAt: new Date(finishedAt).toISOString(),
     durationMs: finishedAt - startedAt,
@@ -844,8 +849,11 @@ function renderReportHtml(summary, results, live = false, liveState) {
   const failedPercent = summary.failedChecks / totalStatus * 100;
   const verdictClass = summary.failedChecks === 0 ? "healthy" : summary.checkFailureRate >= 25 ? "critical" : "attention";
   const verdictText = summary.failedChecks === 0 ? "\uB9B4\uB9AC\uC2A4 \uCC28\uB2E8 \uC774\uC288 \uC5C6\uC74C" : summary.checkFailureRate >= 25 ? "\uB9B4\uB9AC\uC2A4 \uC804 \uC6B0\uC120 \uC870\uCE58 \uD544\uC694" : "\uD655\uC778 \uD6C4 \uB9B4\uB9AC\uC2A4 \uAC00\uB2A5";
-  const isRunning = live && !summary.finishedAt;
-  const reportStatus = isRunning ? "\uC810\uAC80 \uC911" : "\uC810\uAC80 \uC644\uB8CC";
+  const reportState = summary.status ?? (live && !summary.finishedAt ? "running" : "completed");
+  const isRunning = reportState === "running";
+  const reportStatus = reportState === "cancelled" ? "\uC810\uAC80 \uC911\uC9C0\uB428" : isRunning ? "\uC810\uAC80 \uC911" : "\uC810\uAC80 \uC644\uB8CC";
+  const runStateClass = reportState === "cancelled" ? "cancelled" : isRunning ? "running" : "done";
+  const stopButtonHtml = live ? `<button id="stopRun" class="stop-run" type="button" ${isRunning ? "" : "disabled"}>\uC810\uAC80 \uC911\uC9C0</button>` : "";
   return `<!doctype html>
 <html lang="ko">
 <head>
@@ -854,7 +862,7 @@ function renderReportHtml(summary, results, live = false, liveState) {
 <title>Site Check Pro report</title>
 <style>
 :root{font-family:Inter,Pretendard,system-ui,sans-serif;color:#1f2937;background:#f6f7f9;--line:#d9dee7;--text:#1f2937;--muted:#687385;--panel:#fff;--green:#179b68;--amber:#c77700;--red:#d14343;--blue:#2563eb;--ink:#202633}
-*{box-sizing:border-box}body{margin:0}.app{display:grid;grid-template-columns:280px minmax(0,1fr);min-height:100vh}.sidebar{position:sticky;top:0;height:100vh;padding:22px 18px;background:#202633;color:#f7f8fb;display:flex;flex-direction:column;gap:18px}.brand{display:flex;align-items:center;gap:10px;padding-bottom:14px;border-bottom:1px solid #ffffff1f}.mark{width:34px;height:34px;border-radius:8px;background:#4f8cff;display:grid;place-items:center;font-weight:900}.brand strong{display:block}.brand span,.side-label,.side-meta,.side-foot{color:#b9c2d1}.side-card{border:1px solid #ffffff1a;border-radius:8px;padding:14px;background:#ffffff0c}.side-label{font-size:11px;text-transform:uppercase;letter-spacing:.08em}.side-url{margin-top:8px;word-break:break-all;font-weight:750}.side-meta{display:grid;gap:7px;font-size:12px}.side-meta b{color:#fff}.nav{display:grid;gap:8px}.view-button{display:flex;align-items:center;justify-content:space-between;border:1px solid transparent;background:transparent;color:#dce4f0;border-radius:8px;padding:11px 12px;cursor:pointer;font-weight:750;text-align:left}.view-button:hover{background:#ffffff10}.view-button.active{background:#fff;color:#202633}.connection,.run-state{display:inline-flex;align-items:center;gap:7px;width:max-content;border:1px solid #ffffff24;border-radius:999px;padding:7px 10px;font-size:12px;color:#d8f7e7}.connection:before,.run-state:before{content:'';width:7px;height:7px;border-radius:50%;background:#32d583}.run-state{background:#fff;color:#27364a;border-color:#d9dee7;font-weight:850}.run-state.running{color:#067647;background:#eaf8f1;border-color:#abefc6}.run-state.running:before{background:#12b76a;animation:pulse-dot 1s ease-in-out infinite}.run-state.done{color:#067647;background:#eaf8f1;border-color:#abefc6}.run-state.done:before{background:#12b76a}.side-foot{margin-top:auto;font-size:12px;line-height:1.5}.main{padding:30px 34px 42px}.topbar{display:flex;justify-content:space-between;gap:20px;align-items:flex-start;margin-bottom:22px}.eyebrow{font-size:12px;font-weight:900;color:#2563eb;letter-spacing:.08em;text-transform:uppercase}.topbar h1{margin:6px 0 8px;font-size:30px;line-height:1.15}.muted,.empty{color:var(--muted)}.view{display:none}.view.active{display:block}.section-head{display:flex;align-items:flex-end;justify-content:space-between;gap:20px;margin:26px 0 12px}.section-head h2{margin:0 0 5px;font-size:20px}.section-head p{margin:0}.verdict{display:grid;grid-template-columns:auto 1fr auto;gap:16px;align-items:center;border:1px solid var(--line);border-radius:8px;background:var(--panel);padding:18px;box-shadow:0 8px 22px #2030400a}.verdict-mark{width:44px;height:44px;border-radius:8px;display:grid;place-items:center;font-weight:900}.verdict.healthy .verdict-mark{background:#eaf8f1;color:var(--green)}.verdict.attention .verdict-mark{background:#fff5df;color:var(--amber)}.verdict.critical .verdict-mark{background:#fff0f0;color:var(--red)}.verdict strong{display:block;margin-bottom:3px}.verdict-score{font-size:28px;font-weight:900}.grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}.metric,.panel,.table-shell,.route-discovery{border:1px solid var(--line);background:var(--panel);border-radius:8px;box-shadow:0 8px 22px #2030400a}.metric{padding:16px;min-height:112px}.metric span{display:block;color:var(--muted);font-size:13px}.metric strong{display:block;margin-top:11px;font-size:30px;letter-spacing:-.02em}.metric-button{width:100%;height:100%;padding:0;border:0;background:transparent;color:inherit;text-align:left;cursor:pointer}.metric-button:hover strong{color:var(--blue)}.metric.success{border-left:4px solid var(--green)}.metric.warning{border-left:4px solid var(--amber)}.metric.danger{border-left:4px solid var(--red)}.route-discovery{margin-top:12px;padding:16px}.route-discovery[hidden]{display:none}.route-discovery h3{margin:0 0 12px;font-size:15px}.route-discovery ul{margin:0;padding-left:18px;columns:2}.route-discovery li{margin:7px 0;word-break:break-all}.analysis-grid{display:grid;grid-template-columns:1.15fr repeat(3,minmax(0,1fr));gap:12px}.panel{padding:18px;min-height:230px}.panel h3{margin:0 0 16px;font-size:15px}.status-chart{display:grid;grid-template-columns:142px 1fr;gap:20px;align-items:center}.donut{width:142px;height:142px;border-radius:50%;display:grid;place-items:center}.donut:after{content:'';width:84px;height:84px;border-radius:50%;background:#fff;box-shadow:inset 0 0 0 1px var(--line)}.legend{display:grid;gap:9px}.legend span{display:flex;align-items:center;justify-content:space-between;gap:12px}.legend i{width:10px;height:10px;border-radius:50%;display:inline-block;margin-right:8px}.legend label{display:flex;align-items:center;color:var(--muted)}.bar-row{display:grid;grid-template-columns:minmax(72px,92px) 1fr 32px;align-items:center;gap:10px;margin:12px 0}.bar-row span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--muted)}.bar-track{height:8px;border-radius:99px;background:#eef1f5;overflow:hidden}.bar-track i{display:block;height:100%;border-radius:99px;background:linear-gradient(90deg,#f59e0b,#d14343)}.toolbar{display:flex;gap:8px;align-items:center}.toolbar input,.toolbar select{height:40px;border:1px solid #cfd6e2;border-radius:8px;background:#fff;padding:0 11px;color:var(--text)}.toolbar input{min-width:320px}.table-shell{overflow:auto}table{width:100%;border-collapse:collapse;font-size:13px}th,td{padding:12px;border-bottom:1px solid #e7ebf1;text-align:left;vertical-align:top}th{position:sticky;top:0;background:#fafbfc;color:#596579;font-size:12px;z-index:1}tbody tr:hover{background:#f7f9fd}.sortable{cursor:pointer;user-select:none;white-space:nowrap}.sortable:after{content:' \u21C5';color:#98a2b3}.sortable.asc:after{content:' \u2191';color:var(--blue)}.sortable.desc:after{content:' \u2193';color:var(--blue)}.status-badge{display:inline-flex;align-items:center;border-radius:999px;padding:4px 8px;font-size:11px;font-weight:900;text-transform:uppercase;background:#eef2f7;color:#536073}.failed .status-badge{background:#fff0f0;color:#b42318}.passed .status-badge{background:#eaf8f1;color:#067647}.warning .status-badge{background:#fff5df;color:#b54708}.route{max-width:320px;word-break:break-all}.detail-button{border:1px solid #cfd6e2;background:#fff;color:#27364a;border-radius:8px;padding:8px 10px;cursor:pointer;font-weight:750}.detail-button:hover{border-color:#86a9ff;color:var(--blue)}.evidence-button{display:grid;gap:5px;padding:5px;font-size:10px}.evidence-button img{width:76px;height:46px;object-fit:cover;border-radius:6px}.no-evidence{color:#9aa4b5}.final-metrics{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:14px}.final-metrics div{padding:14px;border:1px solid var(--line);border-radius:8px;background:#fff}.final-metrics b{display:block;margin-top:5px;font-size:24px}.route-summary{display:grid;gap:10px}.route-group{border:1px solid var(--line);border-radius:8px;background:#fff;overflow:hidden}.route-group summary{cursor:pointer;padding:14px 16px;background:#fafbfc;display:flex;gap:10px;align-items:center}.route-group summary strong{flex:1;word-break:break-all}.route-group ul{margin:0;padding:12px 18px 16px 36px}.route-group li{margin:8px 0}.result-pill{font-size:11px;font-weight:900;padding:4px 8px;border-radius:999px}.result-pill.failed{background:#fff0f0;color:#b42318}.result-pill.warning{background:#fff5df;color:#b54708}.result-pill.passed{background:#eaf8f1;color:#067647}.issue-link{border:0;background:none;color:#2563eb;cursor:pointer;padding:0;text-align:left;font-weight:750}.modal{position:fixed;inset:0;background:#151a23b8;display:none;align-items:center;justify-content:center;padding:24px;z-index:20;backdrop-filter:blur(4px)}.modal.open{display:flex}.dialog{width:min(980px,100%);max-height:90vh;overflow:auto;background:#fff;border-radius:8px;box-shadow:0 24px 60px #10182855}.dialog-head{position:sticky;top:0;z-index:1;background:#fff;border-bottom:1px solid #e7ebf1;padding:18px 22px;display:flex;justify-content:space-between;align-items:center}.dialog-body{padding:22px}.close{border:0;background:#eef2f7;border-radius:50%;font-size:21px;width:36px;height:36px;cursor:pointer}.detail-grid{display:grid;grid-template-columns:150px 1fr;gap:10px 18px;margin-bottom:20px}.detail-grid dt{color:var(--muted)}.detail-grid dd{margin:0;word-break:break-word}.details-json{white-space:pre-wrap;word-break:break-word;background:#171d29;color:#d6dde8;padding:16px;border-radius:8px;overflow:auto}.artifact-preview{display:block;max-width:100%;max-height:520px;margin:12px auto;border:1px solid var(--line);border-radius:8px}@keyframes pulse-dot{0%,100%{opacity:1;box-shadow:0 0 0 0 #12b76a66}50%{opacity:.35;box-shadow:0 0 0 5px #12b76a00}}
+*{box-sizing:border-box}body{margin:0}.app{display:grid;grid-template-columns:280px minmax(0,1fr);min-height:100vh}.sidebar{position:sticky;top:0;height:100vh;padding:22px 18px;background:#202633;color:#f7f8fb;display:flex;flex-direction:column;gap:18px}.brand{display:flex;align-items:center;gap:10px;padding-bottom:14px;border-bottom:1px solid #ffffff1f}.mark{width:34px;height:34px;border-radius:8px;background:#4f8cff;display:grid;place-items:center;font-weight:900}.brand strong{display:block}.brand span,.side-label,.side-meta,.side-foot{color:#b9c2d1}.side-card{border:1px solid #ffffff1a;border-radius:8px;padding:14px;background:#ffffff0c}.side-label{font-size:11px;text-transform:uppercase;letter-spacing:.08em}.side-url{margin-top:8px;word-break:break-all;font-weight:750}.side-meta{display:grid;gap:7px;font-size:12px}.side-meta b{color:#fff}.nav{display:grid;gap:8px}.view-button{display:flex;align-items:center;justify-content:space-between;border:1px solid transparent;background:transparent;color:#dce4f0;border-radius:8px;padding:11px 12px;cursor:pointer;font-weight:750;text-align:left}.view-button:hover{background:#ffffff10}.view-button.active{background:#fff;color:#202633}.connection,.run-state{display:inline-flex;align-items:center;gap:7px;width:max-content;border:1px solid #ffffff24;border-radius:999px;padding:7px 10px;font-size:12px;color:#d8f7e7}.connection:before,.run-state:before{content:'';width:7px;height:7px;border-radius:50%;background:#32d583}.run-state{background:#fff;color:#27364a;border-color:#d9dee7;font-weight:850}.run-state.running{color:#067647;background:#eaf8f1;border-color:#abefc6}.run-state.running:before{background:#12b76a;animation:pulse-dot 1s ease-in-out infinite}.run-state.done{color:#067647;background:#eaf8f1;border-color:#abefc6}.run-state.done:before{background:#12b76a}.run-state.cancelled{color:#667085;background:#f2f4f7;border-color:#d0d5dd}.run-state.cancelled:before{background:#98a2b3}.stop-run{height:34px;border:1px solid #fecdca;background:#fff0f0;color:#b42318;border-radius:8px;padding:0 12px;font-weight:850;cursor:pointer}.stop-run:disabled{opacity:.65;cursor:not-allowed}.top-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-end}.side-foot{margin-top:auto;font-size:12px;line-height:1.5}.main{padding:30px 34px 42px}.topbar{display:flex;justify-content:space-between;gap:20px;align-items:flex-start;margin-bottom:22px}.eyebrow{font-size:12px;font-weight:900;color:#2563eb;letter-spacing:.08em;text-transform:uppercase}.topbar h1{margin:6px 0 8px;font-size:30px;line-height:1.15}.muted,.empty{color:var(--muted)}.view{display:none}.view.active{display:block}.section-head{display:flex;align-items:flex-end;justify-content:space-between;gap:20px;margin:26px 0 12px}.section-head h2{margin:0 0 5px;font-size:20px}.section-head p{margin:0}.verdict{display:grid;grid-template-columns:auto 1fr auto;gap:16px;align-items:center;border:1px solid var(--line);border-radius:8px;background:var(--panel);padding:18px;box-shadow:0 8px 22px #2030400a}.verdict-mark{width:44px;height:44px;border-radius:8px;display:grid;place-items:center;font-weight:900}.verdict.healthy .verdict-mark{background:#eaf8f1;color:var(--green)}.verdict.attention .verdict-mark{background:#fff5df;color:var(--amber)}.verdict.critical .verdict-mark{background:#fff0f0;color:var(--red)}.verdict strong{display:block;margin-bottom:3px}.verdict-score{font-size:28px;font-weight:900}.grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}.metric,.panel,.table-shell,.route-discovery{border:1px solid var(--line);background:var(--panel);border-radius:8px;box-shadow:0 8px 22px #2030400a}.metric{padding:16px;min-height:112px}.metric span{display:block;color:var(--muted);font-size:13px}.metric strong{display:block;margin-top:11px;font-size:30px;letter-spacing:-.02em}.metric-button{width:100%;height:100%;padding:0;border:0;background:transparent;color:inherit;text-align:left;cursor:pointer}.metric-button:hover strong{color:var(--blue)}.metric.success{border-left:4px solid var(--green)}.metric.warning{border-left:4px solid var(--amber)}.metric.danger{border-left:4px solid var(--red)}.route-discovery{margin-top:12px;padding:16px}.route-discovery[hidden]{display:none}.route-discovery h3{margin:0 0 12px;font-size:15px}.route-discovery ul{margin:0;padding-left:18px;columns:2}.route-discovery li{margin:7px 0;word-break:break-all}.analysis-grid{display:grid;grid-template-columns:1.15fr repeat(3,minmax(0,1fr));gap:12px}.panel{padding:18px;min-height:230px}.panel h3{margin:0 0 16px;font-size:15px}.status-chart{display:grid;grid-template-columns:142px 1fr;gap:20px;align-items:center}.donut{width:142px;height:142px;border-radius:50%;display:grid;place-items:center}.donut:after{content:'';width:84px;height:84px;border-radius:50%;background:#fff;box-shadow:inset 0 0 0 1px var(--line)}.legend{display:grid;gap:9px}.legend span{display:flex;align-items:center;justify-content:space-between;gap:12px}.legend i{width:10px;height:10px;border-radius:50%;display:inline-block;margin-right:8px}.legend label{display:flex;align-items:center;color:var(--muted)}.bar-row{display:grid;grid-template-columns:minmax(72px,92px) 1fr 32px;align-items:center;gap:10px;margin:12px 0}.bar-row span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--muted)}.bar-track{height:8px;border-radius:99px;background:#eef1f5;overflow:hidden}.bar-track i{display:block;height:100%;border-radius:99px;background:linear-gradient(90deg,#f59e0b,#d14343)}.toolbar{display:flex;gap:8px;align-items:center}.toolbar input,.toolbar select{height:40px;border:1px solid #cfd6e2;border-radius:8px;background:#fff;padding:0 11px;color:var(--text)}.toolbar input{min-width:320px}.table-shell{overflow:auto}table{width:100%;border-collapse:collapse;font-size:13px}th,td{padding:12px;border-bottom:1px solid #e7ebf1;text-align:left;vertical-align:top}th{position:sticky;top:0;background:#fafbfc;color:#596579;font-size:12px;z-index:1}tbody tr:hover{background:#f7f9fd}.sortable{cursor:pointer;user-select:none;white-space:nowrap}.sortable:after{content:' \u21C5';color:#98a2b3}.sortable.asc:after{content:' \u2191';color:var(--blue)}.sortable.desc:after{content:' \u2193';color:var(--blue)}.status-badge{display:inline-flex;align-items:center;border-radius:999px;padding:4px 8px;font-size:11px;font-weight:900;text-transform:uppercase;background:#eef2f7;color:#536073}.failed .status-badge{background:#fff0f0;color:#b42318}.passed .status-badge{background:#eaf8f1;color:#067647}.warning .status-badge{background:#fff5df;color:#b54708}.route{max-width:320px;word-break:break-all}.detail-button{border:1px solid #cfd6e2;background:#fff;color:#27364a;border-radius:8px;padding:8px 10px;cursor:pointer;font-weight:750}.detail-button:hover{border-color:#86a9ff;color:var(--blue)}.evidence-button{display:grid;gap:5px;padding:5px;font-size:10px}.evidence-button img{width:76px;height:46px;object-fit:cover;border-radius:6px}.no-evidence{color:#9aa4b5}.final-metrics{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:14px}.final-metrics div{padding:14px;border:1px solid var(--line);border-radius:8px;background:#fff}.final-metrics b{display:block;margin-top:5px;font-size:24px}.route-summary{display:grid;gap:10px}.route-group{border:1px solid var(--line);border-radius:8px;background:#fff;overflow:hidden}.route-group summary{cursor:pointer;padding:14px 16px;background:#fafbfc;display:flex;gap:10px;align-items:center}.route-group summary strong{flex:1;word-break:break-all}.route-group ul{margin:0;padding:12px 18px 16px 36px}.route-group li{margin:8px 0}.result-pill{font-size:11px;font-weight:900;padding:4px 8px;border-radius:999px}.result-pill.failed{background:#fff0f0;color:#b42318}.result-pill.warning{background:#fff5df;color:#b54708}.result-pill.passed{background:#eaf8f1;color:#067647}.issue-link{border:0;background:none;color:#2563eb;cursor:pointer;padding:0;text-align:left;font-weight:750}.modal{position:fixed;inset:0;background:#151a23b8;display:none;align-items:center;justify-content:center;padding:24px;z-index:20;backdrop-filter:blur(4px)}.modal.open{display:flex}.dialog{width:min(980px,100%);max-height:90vh;overflow:auto;background:#fff;border-radius:8px;box-shadow:0 24px 60px #10182855}.dialog-head{position:sticky;top:0;z-index:1;background:#fff;border-bottom:1px solid #e7ebf1;padding:18px 22px;display:flex;justify-content:space-between;align-items:center}.dialog-body{padding:22px}.close{border:0;background:#eef2f7;border-radius:50%;font-size:21px;width:36px;height:36px;cursor:pointer}.detail-grid{display:grid;grid-template-columns:150px 1fr;gap:10px 18px;margin-bottom:20px}.detail-grid dt{color:var(--muted)}.detail-grid dd{margin:0;word-break:break-word}.details-json{white-space:pre-wrap;word-break:break-word;background:#171d29;color:#d6dde8;padding:16px;border-radius:8px;overflow:auto}.artifact-preview{display:block;max-width:100%;max-height:520px;margin:12px auto;border:1px solid var(--line);border-radius:8px}@keyframes pulse-dot{0%,100%{opacity:1;box-shadow:0 0 0 0 #12b76a66}50%{opacity:.35;box-shadow:0 0 0 5px #12b76a00}}
 @media(max-width:1180px){.analysis-grid{grid-template-columns:1fr 1fr}.grid{grid-template-columns:repeat(2,1fr)}}@media(max-width:820px){.app{grid-template-columns:1fr}.sidebar{position:relative;height:auto}.main{padding:22px 18px 34px}.topbar,.section-head{align-items:flex-start;flex-direction:column}.grid,.analysis-grid,.final-metrics{grid-template-columns:1fr}.route-discovery ul{columns:1}.toolbar{width:100%;flex-direction:column;align-items:stretch}.toolbar input{min-width:0}.status-chart{grid-template-columns:1fr}.detail-grid{grid-template-columns:1fr}.route-group summary{align-items:flex-start;flex-direction:column}}
 </style>
 </head>
@@ -883,7 +891,7 @@ function renderReportHtml(summary, results, live = false, liveState) {
   <main class="main">
     <header class="topbar">
       <div><div class="eyebrow">Automated Quality Report</div><h1>${live ? "\uC2E4\uC2DC\uAC04 \uC810\uAC80 \uB300\uC2DC\uBCF4\uB4DC" : "\uC0AC\uC774\uD2B8 \uC810\uAC80 \uB9AC\uD3EC\uD2B8"}</h1><div class="muted">\uC911\uBCF5 \uC5C6\uB294 \uC694\uC57D, \uC2E4\uD328 \uC9D1\uC911\uB3C4, \uACBD\uB85C\uBCC4 \uCD5C\uC885 \uACB0\uACFC\uB97C \uD55C \uD654\uBA74 \uD750\uB984\uC73C\uB85C \uC815\uB9AC\uD588\uC2B5\uB2C8\uB2E4.</div></div>
-      <span id="runState" class="run-state ${isRunning ? "running" : "done"}">${escapeHtml2(reportStatus)}</span>
+      <div class="top-actions">${stopButtonHtml}<span id="runState" class="run-state ${runStateClass}">${escapeHtml2(reportStatus)}</span></div>
     </header>
     <section id="summaryView" class="view active">
       <div id="verdict" class="verdict ${verdictClass}">
@@ -949,11 +957,13 @@ function updateRates(){const affectedRate=routeInstances.size?((affectedInstance
 function cell(value,className){const td=document.createElement('td');if(className)td.className=className;td.textContent=String(value??'');return td}
 function renderBars(id,counts){const container=document.querySelector('#'+id);container.replaceChildren();const entries=[...counts.entries()].sort((a,b)=>Number(b[1])-Number(a[1]));if(!entries.length){container.appendChild(textElement('p','No failures','empty'));return}const max=Math.max(1,...entries.map(([,value])=>Number(value)));for(const [label,value] of entries){const row=document.createElement('div');row.className='bar-row';const name=document.createElement('span');name.textContent=label;name.title=label;const bar=document.createElement('div');bar.className='bar-track';const fill=document.createElement('i');fill.style.width=(Number(value)/max*100)+'%';bar.appendChild(fill);const count=document.createElement('b');count.textContent=String(value);row.append(name,bar,count);container.appendChild(row)}}
 function increment(counts,key){counts.set(key,Number(counts.get(key)||0)+1)}
-function setRunState(text,state){setText('reportStatus',text);const node=document.querySelector('#runState');if(!node)return;node.textContent=text;node.classList.toggle('running',state==='running');node.classList.toggle('done',state==='done')}
+function setRunState(text,state){setText('reportStatus',text);const node=document.querySelector('#runState');if(!node)return;node.textContent=text;node.classList.toggle('running',state==='running');node.classList.toggle('done',state==='done');node.classList.toggle('cancelled',state==='cancelled')}
 connection.textContent='live';source.onopen=()=>connection.textContent='\uC2E4\uC2DC\uAC04 \uC5F0\uACB0\uB428';source.onerror=()=>connection.textContent='\uC5F0\uACB0 \uC7AC\uC2DC\uB3C4 \uC911';
+const stopRunButton=document.querySelector('#stopRun');if(stopRunButton)stopRunButton.addEventListener('click',async()=>{stopRunButton.disabled=true;setRunState('\uC911\uC9C0 \uC694\uCCAD\uB428','running');try{const response=await fetch('/stop',{method:'POST'});const data=await response.json();if(!response.ok)throw new Error(data.message||'\uC810\uAC80 \uC911\uC9C0 \uC2E4\uD328')}catch(error){setRunState(error instanceof Error?error.message:String(error),'running');stopRunButton.disabled=false}});
 source.addEventListener('route.discovered',event=>{const e=JSON.parse(event.data),isNew=!routeUrls.has(e.route);routeUrls.add(e.route);routeInstances.add(e.browser+':'+e.profile+':'+e.route);if(isNew){if(routeDiscoveryList.querySelector('.empty'))routeDiscoveryList.replaceChildren();routeDiscoveryList.appendChild(textElement('li',e.route))}setText('discovered',routeUrls.size);setText('routeInstances',routeInstances.size);updateRates()});
 source.addEventListener('check.finished',event=>{const e=JSON.parse(event.data),r=e.result;resultData.push(r);completed++;if(r.status==='passed')passed++;if(r.status==='failed'){failedCount++;increment(categoryCounts,r.category);increment(browserCounts,r.browser);increment(profileCounts,r.profile);renderBars('categoryBars',categoryCounts);renderBars('browserBars',browserCounts);renderBars('profileBars',profileCounts);if(r.browser!=='node'&&r.category!=='browser'&&r.category!=='authentication')affectedInstances.add(r.browser+':'+r.profile+':'+r.route)}if(r.status==='warning')warning++;setText('completed',completed);setText('passed',passed);setText('warning',warning);setText('failed',failedCount);updateRates();const tr=document.createElement('tr');tr.className=r.status;const statusCell=document.createElement('td');const badge=document.createElement('span');badge.className='status-badge';badge.textContent=r.status;statusCell.appendChild(badge);tr.append(statusCell,cell(r.browser),cell(r.profile),cell(r.category),cell(r.route,'route'),cell(r.check),cell(r.message||''),cell(r.durationMs+'ms'));const evidenceCell=document.createElement('td');evidenceCell.innerHTML=r.artifact?'<button class="evidence-button detail-button" data-result-id="'+r.id+'"><img src="'+r.artifact+'" alt="\uC2E4\uD328 \uD654\uBA74"><span>Evidence</span></button>':'<span class="no-evidence">-</span>';tr.appendChild(evidenceCell);const detailCell=document.createElement('td'),button=document.createElement('button');button.className='detail-button';button.dataset.resultId=r.id;button.textContent='\uC0C1\uC138 \uACB0\uACFC';detailCell.appendChild(button);tr.appendChild(detailCell);document.querySelector('#results').prepend(tr);filter()});
-source.addEventListener('run.finished',async event=>{const s=JSON.parse(event.data).summary;completed=s.completedChecks;passed=s.passedChecks;warning=s.warningChecks;failedCount=s.failedChecks;for(const [id,key] of [['discovered','discoveredRoutes'],['routeInstances','routeInstances'],['completed','completedChecks'],['passed','passedChecks'],['warning','warningChecks'],['failed','failedChecks'],['affected','affectedRoutes']])setText(id,s[key]);setText('failureRate',s.checkFailureRate+'%');categoryCounts.clear();for(const [key,value] of Object.entries(s.byCategory))categoryCounts.set(key,value);browserCounts.clear();for(const [key,value] of Object.entries(s.byBrowser))browserCounts.set(key,value);profileCounts.clear();for(const [key,value] of Object.entries(s.byProfile))profileCounts.set(key,value);renderBars('categoryBars',categoryCounts);renderBars('browserBars',browserCounts);renderBars('profileBars',profileCounts);updateRates();setRunState('\uC810\uAC80 \uC644\uB8CC','done');connection.textContent='\uCCB4\uD06C \uC644\uB8CC';source.close();try{const saved=await fetch('/result.json',{cache:'no-store'}).then(response=>response.json());resultData.splice(0,resultData.length,...saved);for(const row of document.querySelectorAll('#results tr')){const id=row.querySelector('.detail-button')?.dataset.resultId,r=resultData.find(item=>item.id===id);if(!r?.artifact)continue;const evidence=row.children[8];evidence.replaceChildren();const button=document.createElement('button');button.className='evidence-button detail-button';button.dataset.resultId=r.id;const img=document.createElement('img');img.src=r.artifact;img.alt='\uC2E4\uD328 \uD654\uBA74';button.append(img,textElement('span','Evidence'));evidence.appendChild(button)}}catch{}renderFinal()});` : ""}
+source.addEventListener('run.finished',async event=>{const s=JSON.parse(event.data).summary;completed=s.completedChecks;passed=s.passedChecks;warning=s.warningChecks;failedCount=s.failedChecks;for(const [id,key] of [['discovered','discoveredRoutes'],['routeInstances','routeInstances'],['completed','completedChecks'],['passed','passedChecks'],['warning','warningChecks'],['failed','failedChecks'],['affected','affectedRoutes']])setText(id,s[key]);setText('failureRate',s.checkFailureRate+'%');categoryCounts.clear();for(const [key,value] of Object.entries(s.byCategory))categoryCounts.set(key,value);browserCounts.clear();for(const [key,value] of Object.entries(s.byBrowser))browserCounts.set(key,value);profileCounts.clear();for(const [key,value] of Object.entries(s.byProfile))profileCounts.set(key,value);renderBars('categoryBars',categoryCounts);renderBars('browserBars',browserCounts);renderBars('profileBars',profileCounts);updateRates();setRunState('\uC810\uAC80 \uC644\uB8CC','done');if(stopRunButton)stopRunButton.disabled=true;connection.textContent='\uCCB4\uD06C \uC644\uB8CC';source.close();try{const saved=await fetch('/result.json',{cache:'no-store'}).then(response=>response.json());resultData.splice(0,resultData.length,...saved);for(const row of document.querySelectorAll('#results tr')){const id=row.querySelector('.detail-button')?.dataset.resultId,r=resultData.find(item=>item.id===id);if(!r?.artifact)continue;const evidence=row.children[8];evidence.replaceChildren();const button=document.createElement('button');button.className='evidence-button detail-button';button.dataset.resultId=r.id;const img=document.createElement('img');img.src=r.artifact;img.alt='\uC2E4\uD328 \uD654\uBA74';button.append(img,textElement('span','Evidence'));evidence.appendChild(button)}}catch{}renderFinal()});` : ""}
+${live ? `source.addEventListener('run.cancelled',event=>{const s=JSON.parse(event.data).summary;completed=s.completedChecks;passed=s.passedChecks;warning=s.warningChecks;failedCount=s.failedChecks;for(const [id,key] of [['discovered','discoveredRoutes'],['routeInstances','routeInstances'],['completed','completedChecks'],['passed','passedChecks'],['warning','warningChecks'],['failed','failedChecks'],['affected','affectedRoutes']])setText(id,s[key]);setText('failureRate',s.checkFailureRate+'%');setRunState('\uC810\uAC80 \uC911\uC9C0\uB428','cancelled');if(stopRunButton)stopRunButton.disabled=true;connection.textContent='\uC911\uC9C0\uB428';source.close();renderFinal()});` : ""}
 </script>
 </body>
 </html>`;
@@ -1040,7 +1050,19 @@ async function startConfiguredWebServer(config) {
 
 // src/core/runner.ts
 var browserTypes = { chromium: chromium2, firefox, webkit };
-async function runAudit(config, eventBus = new AuditEventBus()) {
+var AuditCancelledError = class extends Error {
+  constructor() {
+    super("\uC0AC\uC774\uD2B8 \uC810\uAC80\uC774 \uC911\uC9C0\uB418\uC5C8\uC2B5\uB2C8\uB2E4.");
+    this.name = "AuditCancelledError";
+  }
+};
+function throwIfAborted(signal) {
+  if (signal?.aborted) throw new AuditCancelledError();
+}
+function isAuditCancelled(error) {
+  return error instanceof AuditCancelledError;
+}
+async function runAudit(config, eventBus = new AuditEventBus(), options = {}) {
   const runId = `${(/* @__PURE__ */ new Date()).toISOString().replace(/[:.]/g, "-")}-${randomUUID2().slice(0, 8)}`;
   const startedAt = Date.now();
   const store = new JsonlStore(config.outputDir, runId);
@@ -1062,6 +1084,7 @@ async function runAudit(config, eventBus = new AuditEventBus()) {
   };
   store.appendEvent(startEvent);
   eventBus.publish(startEvent);
+  let status = "completed";
   const publishFailure = (input) => {
     const checkStartedAt = Date.now();
     eventBus.publish({
@@ -1088,8 +1111,10 @@ async function runAudit(config, eventBus = new AuditEventBus()) {
     eventBus.publish({ type: "check.finished", runId, result });
   };
   try {
+    throwIfAborted(options.signal);
     webServer = await startConfiguredWebServer(config);
     for (const browserName of config.browsers) {
+      throwIfAborted(options.signal);
       let browser;
       try {
         browser = await browserTypes[browserName].launch({
@@ -1107,8 +1132,13 @@ async function runAudit(config, eventBus = new AuditEventBus()) {
         });
         continue;
       }
+      const closeBrowserOnAbort = () => {
+        void browser.close().catch(() => void 0);
+      };
+      options.signal?.addEventListener("abort", closeBrowserOnAbort, { once: true });
       try {
         for (const [profileName, profile] of Object.entries(config.profiles)) {
+          throwIfAborted(options.signal);
           const contextOptions = {};
           if (profile.storageState) contextOptions.storageState = path6.resolve(profile.storageState);
           let context;
@@ -1131,6 +1161,7 @@ async function runAudit(config, eventBus = new AuditEventBus()) {
             }));
             const seen = /* @__PURE__ */ new Set();
             while (queue.length > 0 && seen.size < config.crawl.maxPages) {
+              throwIfAborted(options.signal);
               const item = queue.shift();
               if (!item || seen.has(item.url) || item.depth > config.crawl.maxDepth) continue;
               seen.add(item.url);
@@ -1154,6 +1185,7 @@ async function runAudit(config, eventBus = new AuditEventBus()) {
                 eventBus,
                 artifactsDir: store.artifactsDir
               });
+              throwIfAborted(options.signal);
               for (const link of routeResult.discoveredLinks) {
                 if (!seen.has(link) && seen.size + queue.length < config.crawl.maxPages) {
                   queue.push({ url: link, depth: item.depth + 1 });
@@ -1161,22 +1193,28 @@ async function runAudit(config, eventBus = new AuditEventBus()) {
               }
             }
           } finally {
-            await context.close();
+            await context.close().catch(() => void 0);
           }
         }
       } finally {
-        await browser.close();
+        options.signal?.removeEventListener("abort", closeBrowserOnAbort);
+        await browser.close().catch(() => void 0);
       }
     }
-    await auditApis(runId, config, eventBus);
+    throwIfAborted(options.signal);
+    await auditApis(runId, config, eventBus, options.signal);
+    throwIfAborted(options.signal);
+  } catch (error) {
+    if (!isAuditCancelled(error) && !options.signal?.aborted) throw error;
+    status = "cancelled";
   } finally {
     unsubscribe();
     await webServer?.close();
   }
-  const summary = createSummary({ runId, baseURL: config.baseURL, startedAt, results, discoveredRoutes });
+  const summary = createSummary({ runId, baseURL: config.baseURL, startedAt, results, discoveredRoutes, status });
   store.saveSummary(summary);
   writeHtmlReport(store.runDir, summary, results);
-  const finishEvent = { type: "run.finished", runId, summary };
+  const finishEvent = status === "cancelled" ? { type: "run.cancelled", runId, summary } : { type: "run.finished", runId, summary };
   store.appendEvent(finishEvent);
   eventBus.publish(finishEvent);
   return { summary, runDir: store.runDir, eventBus };
@@ -1186,6 +1224,7 @@ async function runAudit(config, eventBus = new AuditEventBus()) {
 var emptySummary = (baseURL) => ({
   runId: "ready",
   baseURL,
+  status: "ready",
   startedAt: (/* @__PURE__ */ new Date()).toISOString(),
   finishedAt: "",
   durationMs: 0,
@@ -1265,6 +1304,7 @@ function liveSummary(input) {
   return {
     runId: input.runId,
     baseURL: input.baseURL,
+    status: "running",
     startedAt: input.startedAt,
     finishedAt: "",
     durationMs: Number.isNaN(startedAtMs) ? 0 : Date.now() - startedAtMs,
@@ -1384,7 +1424,7 @@ function renderControlHtml(input) {
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Site Check Pro</title>
 <style>
-:root{font-family:Inter,Pretendard,system-ui,sans-serif;color:#1f2937;background:#f6f7f9}*{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;padding:24px}.shell{width:min(920px,100%);background:#fff;border:1px solid #d9dee7;border-radius:8px;box-shadow:0 18px 48px #20304014;padding:28px}.eyebrow{font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:#2563eb;font-weight:900}h1{margin:8px 0 10px;font-size:30px}.muted{color:#687385;line-height:1.55}.panel{display:grid;gap:18px;margin-top:24px}.field{display:grid;gap:10px}.field>label{font-weight:850}.checks{display:flex;gap:10px;flex-wrap:wrap}.check{height:44px;display:inline-flex;align-items:center;gap:8px;border:1px solid #cfd6e2;border-radius:8px;padding:0 13px;background:#fff;font-weight:850}.check input{width:16px;height:16px}.actions{display:flex;flex-wrap:wrap;gap:10px;margin-top:4px}button,a{height:42px;border-radius:8px;padding:0 14px;font-weight:850;text-decoration:none;display:inline-flex;align-items:center;border:1px solid #cfd6e2;cursor:pointer;background:#fff;color:#27364a}.primary{background:#2563eb;border-color:#2563eb;color:#fff}.danger{color:#b42318}.status{padding:13px 14px;border-radius:8px;background:#f8fafc;border:1px solid #e4e9f0}.status.warning{background:#fff7ed;color:#9a4d00}.status.error{background:#fff0f0;color:#b42318}.status.done{background:#eaf8f1;color:#067647}.meta{display:grid;grid-template-columns:140px 1fr;gap:10px 16px;margin-top:20px;padding:16px;background:#f8fafc;border:1px solid #e4e9f0;border-radius:8px}.meta dt{color:#687385}.meta dd{margin:0;word-break:break-all;font-weight:750}.modal{position:fixed;inset:0;background:#151a23b8;display:none;align-items:center;justify-content:center;padding:24px}.modal.open{display:flex}.dialog{width:min(1040px,100%);max-height:88vh;overflow:hidden;background:#fff;border-radius:8px;display:grid;grid-template-rows:auto 1fr}.dialog-head{padding:18px 22px;border-bottom:1px solid #e7ebf1;display:flex;justify-content:space-between;align-items:center}.dialog-body{display:grid;grid-template-columns:330px 1fr;min-height:520px;overflow:hidden}.run-list{border-right:1px solid #e7ebf1;overflow:auto;padding:12px}.run-button{height:auto;width:100%;display:block;text-align:left;margin-bottom:8px;padding:12px;line-height:1.45}.run-detail{overflow:auto;padding:18px}.summary-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin:12px 0}.summary-grid div{border:1px solid #e7ebf1;border-radius:8px;padding:10px}.summary-grid b{display:block;font-size:22px;margin-top:4px}.result-table{width:100%;border-collapse:collapse;font-size:12px}.result-table th,.result-table td{padding:9px;border-bottom:1px solid #e7ebf1;text-align:left;vertical-align:top}.result-table th{background:#f8fafc}.failed{color:#b42318}.passed{color:#067647}.warning-text{color:#9a4d00}@media(max-width:760px){.dialog-body{grid-template-columns:1fr}.run-list{border-right:0;border-bottom:1px solid #e7ebf1;max-height:260px}.summary-grid{grid-template-columns:repeat(2,1fr)}}
+:root{font-family:Inter,Pretendard,system-ui,sans-serif;color:#1f2937;background:#f6f7f9}*{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;padding:24px}.shell{width:min(920px,100%);background:#fff;border:1px solid #d9dee7;border-radius:8px;box-shadow:0 18px 48px #20304014;padding:28px}.eyebrow{font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:#2563eb;font-weight:900}h1{margin:8px 0 10px;font-size:30px}.muted{color:#687385;line-height:1.55}.panel{display:grid;gap:18px;margin-top:24px}.field{display:grid;gap:10px}.field>label{font-weight:850}.checks{display:flex;gap:10px;flex-wrap:wrap}.check{height:44px;display:inline-flex;align-items:center;gap:8px;border:1px solid #cfd6e2;border-radius:8px;padding:0 13px;background:#fff;font-weight:850}.check input{width:16px;height:16px}.actions{display:flex;flex-wrap:wrap;gap:10px;margin-top:4px}button,a{height:42px;border-radius:8px;padding:0 14px;font-weight:850;text-decoration:none;display:inline-flex;align-items:center;border:1px solid #cfd6e2;cursor:pointer;background:#fff;color:#27364a}.primary{background:#2563eb;border-color:#2563eb;color:#fff}.danger{background:#fff0f0;border-color:#fecdca;color:#b42318}.danger:disabled{opacity:.6;cursor:not-allowed}.status{padding:13px 14px;border-radius:8px;background:#f8fafc;border:1px solid #e4e9f0}.status.warning{background:#fff7ed;color:#9a4d00}.status.error{background:#fff0f0;color:#b42318}.status.done{background:#eaf8f1;color:#067647}.meta{display:grid;grid-template-columns:140px 1fr;gap:10px 16px;margin-top:20px;padding:16px;background:#f8fafc;border:1px solid #e4e9f0;border-radius:8px}.meta dt{color:#687385}.meta dd{margin:0;word-break:break-all;font-weight:750}.modal{position:fixed;inset:0;background:#151a23b8;display:none;align-items:center;justify-content:center;padding:24px}.modal.open{display:flex}.dialog{width:min(1040px,100%);max-height:88vh;overflow:hidden;background:#fff;border-radius:8px;display:grid;grid-template-rows:auto 1fr}.dialog-head{padding:18px 22px;border-bottom:1px solid #e7ebf1;display:flex;justify-content:space-between;align-items:center}.dialog-body{display:grid;grid-template-columns:330px 1fr;min-height:520px;overflow:hidden}.run-list{border-right:1px solid #e7ebf1;overflow:auto;padding:12px}.run-button{height:auto;width:100%;display:block;text-align:left;margin-bottom:8px;padding:12px;line-height:1.45}.run-detail{overflow:auto;padding:18px}.summary-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin:12px 0}.summary-grid div{border:1px solid #e7ebf1;border-radius:8px;padding:10px}.summary-grid b{display:block;font-size:22px;margin-top:4px}.result-table{width:100%;border-collapse:collapse;font-size:12px}.result-table th,.result-table td{padding:9px;border-bottom:1px solid #e7ebf1;text-align:left;vertical-align:top}.result-table th{background:#f8fafc}.failed{color:#b42318}.passed{color:#067647}.warning-text{color:#9a4d00}@media(max-width:760px){.dialog-body{grid-template-columns:1fr}.run-list{border-right:0;border-bottom:1px solid #e7ebf1;max-height:260px}.summary-grid{grid-template-columns:repeat(2,1fr)}}
 </style>
 </head>
 <body>
@@ -1406,6 +1446,7 @@ function renderControlHtml(input) {
     <div class="actions">
       <button id="saveAuth" type="button">\uB85C\uADF8\uC778 \uC815\uBCF4 \uC800\uC7A5</button>
       <button id="start" class="primary" type="button">\uC810\uAC80 \uC2DC\uC791</button>
+      <button id="stop" class="danger" type="button" disabled>\uC810\uAC80 \uC911\uC9C0</button>
       <button id="currentReport" type="button">\uD604\uC7AC \uC810\uAC80 \uD655\uC778</button>
       <button id="history" type="button">\uC774\uC804 \uC810\uAC80 \uACB0\uACFC \uBCF4\uAE30</button>
     </div>
@@ -1421,15 +1462,16 @@ function renderControlHtml(input) {
   </section>
 </div>
 <script>
-const authStatus=document.querySelector('#authStatus'),runStatus=document.querySelector('#runStatus'),startButton=document.querySelector('#start'),currentReportButton=document.querySelector('#currentReport'),saveAuthButton=document.querySelector('#saveAuth'),historyButton=document.querySelector('#history'),historyModal=document.querySelector('#historyModal'),runList=document.querySelector('#runList'),runDetail=document.querySelector('#runDetail');
+const authStatus=document.querySelector('#authStatus'),runStatus=document.querySelector('#runStatus'),startButton=document.querySelector('#start'),stopButton=document.querySelector('#stop'),currentReportButton=document.querySelector('#currentReport'),saveAuthButton=document.querySelector('#saveAuth'),historyButton=document.querySelector('#history'),historyModal=document.querySelector('#historyModal'),runList=document.querySelector('#runList'),runDetail=document.querySelector('#runDetail');
 function selectedProfiles(){return [...document.querySelectorAll('input[name="profile"]:checked')].map(input=>input.value)}
 function firstLoginProfile(){return selectedProfiles().find(profile=>profile!=='guest')||'member'}
 function setBox(node,type,message){node.className='status '+(type||'');node.textContent=message}
 async function refreshStatus(){const profiles=selectedProfiles();if(!profiles.length){setBox(authStatus,'error','\uD558\uB098 \uC774\uC0C1\uC758 \uD504\uB85C\uD544\uC744 \uC120\uD0DD\uD558\uC138\uC694.');return}const response=await fetch('/profile-status?profiles='+encodeURIComponent(profiles.join(',')),{cache:'no-store'});const data=await response.json();if(!data.missing.length){setBox(authStatus,'done','\uC120\uD0DD\uD55C \uD504\uB85C\uD544\uC744 \uC810\uAC80\uD560 \uC900\uBE44\uAC00 \uB418\uC5C8\uC2B5\uB2C8\uB2E4.');return}setBox(authStatus,'warning',data.missing.join(', ')+' \uB85C\uADF8\uC778 \uC815\uBCF4\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4. \uC810\uAC80 \uC2DC\uC791 \uC804\uC5D0 \uB85C\uADF8\uC778 \uC815\uBCF4 \uC800\uC7A5\uC744 \uC9C4\uD589\uD558\uC138\uC694.')}
-async function refreshRunStatus(){const response=await fetch('/run-status',{cache:'no-store'});const data=await response.json();currentReportButton.disabled=!(data.running||data.finished||data.hasReport);if(data.running){setBox(runStatus,'warning','\uC810\uAC80 \uC911\uC785\uB2C8\uB2E4. \uC644\uB8CC\uB420 \uB54C\uAE4C\uC9C0 \uC7A0\uC2DC \uAE30\uB2E4\uB824\uC8FC\uC138\uC694.');startButton.disabled=true;return}if(data.finished){setBox(runStatus,data.failedChecks>0?'warning':'done','\uC810\uAC80 \uC644\uB8CC: '+data.completedChecks+'\uAC1C \uCCB4\uD06C, \uC2E4\uD328 '+data.failedChecks+'\uAC1C');startButton.disabled=false;return}setBox(runStatus,'','\uB300\uAE30 \uC911\uC785\uB2C8\uB2E4.');startButton.disabled=false}
+async function refreshRunStatus(){const response=await fetch('/run-status',{cache:'no-store'});const data=await response.json();currentReportButton.disabled=!(data.running||data.finished||data.cancelled||data.hasReport);stopButton.disabled=!data.running;if(data.running){setBox(runStatus,'warning','\uC810\uAC80 \uC911\uC785\uB2C8\uB2E4. \uC644\uB8CC\uB420 \uB54C\uAE4C\uC9C0 \uC7A0\uC2DC \uAE30\uB2E4\uB824\uC8FC\uC138\uC694.');startButton.disabled=true;return}if(data.cancelled){setBox(runStatus,'warning','\uC810\uAC80\uC774 \uC911\uC9C0\uB418\uC5C8\uC2B5\uB2C8\uB2E4. \uD604\uC7AC\uAE4C\uC9C0 \uC800\uC7A5\uB41C \uACB0\uACFC\uB97C \uD655\uC778\uD560 \uC218 \uC788\uC2B5\uB2C8\uB2E4.');startButton.disabled=false;return}if(data.finished){setBox(runStatus,data.failedChecks>0?'warning':'done','\uC810\uAC80 \uC644\uB8CC: '+data.completedChecks+'\uAC1C \uCCB4\uD06C, \uC2E4\uD328 '+data.failedChecks+'\uAC1C');startButton.disabled=false;return}setBox(runStatus,'','\uB300\uAE30 \uC911\uC785\uB2C8\uB2E4.');startButton.disabled=false}
 for(const input of document.querySelectorAll('input[name="profile"]'))input.addEventListener('change',refreshStatus);
 saveAuthButton.addEventListener('click',async()=>{const profile=firstLoginProfile();setBox(authStatus,'warning',profile+' \uB85C\uADF8\uC778 \uC815\uBCF4 \uC800\uC7A5 \uD654\uBA74\uC744 \uC5EC\uB294 \uC911\uC785\uB2C8\uB2E4. \uC800\uC7A5\uC774 \uB05D\uB0A0 \uB54C\uAE4C\uC9C0 \uC774 \uCC3D\uC744 \uB2EB\uC9C0 \uB9C8\uC138\uC694.');saveAuthButton.disabled=true;try{const response=await fetch('/auth',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({profile})});const data=await response.json();if(!response.ok)throw new Error(data.message||'\uB85C\uADF8\uC778 \uC815\uBCF4 \uC800\uC7A5 \uC2E4\uD328');setBox(authStatus,'done','\uB85C\uADF8\uC778 \uC815\uBCF4\uAC00 \uC800\uC7A5\uB418\uC5C8\uC2B5\uB2C8\uB2E4. \uC800\uC7A5 \uACBD\uB85C: '+data.authPath)}catch(error){setBox(authStatus,'error',error instanceof Error?error.message:String(error))}finally{saveAuthButton.disabled=false;refreshStatus()}});
 startButton.addEventListener('click',async()=>{const profiles=selectedProfiles();setBox(runStatus,'warning','\uC810\uAC80\uC744 \uC2DC\uC791\uD558\uB294 \uC911\uC785\uB2C8\uB2E4.');startButton.disabled=true;try{const response=await fetch('/start',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({profiles})});const data=await response.json();if(!response.ok)throw new Error(data.message||'\uC810\uAC80 \uC2DC\uC791 \uC2E4\uD328');window.location.href='/report'}catch(error){setBox(runStatus,'error',error instanceof Error?error.message:String(error));startButton.disabled=false}});
+stopButton.addEventListener('click',async()=>{if(stopButton.disabled)return;setBox(runStatus,'warning','\uC810\uAC80 \uC911\uC9C0\uB97C \uC694\uCCAD\uD588\uC2B5\uB2C8\uB2E4. \uD604\uC7AC \uC791\uC5C5\uC744 \uC815\uB9AC\uD558\uB294 \uC911\uC785\uB2C8\uB2E4.');stopButton.disabled=true;try{const response=await fetch('/stop',{method:'POST'});const data=await response.json();if(!response.ok)throw new Error(data.message||'\uC810\uAC80 \uC911\uC9C0 \uC2E4\uD328')}catch(error){setBox(runStatus,'error',error instanceof Error?error.message:String(error));refreshRunStatus()}});
 currentReportButton.addEventListener('click',()=>{window.location.href='/report'});
 function esc(value){return String(value??'').replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[char]))}
 async function openHistory(){historyModal.classList.add('open');runList.textContent='\uBD88\uB7EC\uC624\uB294 \uC911\uC785\uB2C8\uB2E4.';runDetail.textContent='\uC67C\uCABD\uC5D0\uC11C \uACB0\uACFC\uB97C \uC120\uD0DD\uD558\uC138\uC694.';const runs=await fetch('/runs',{cache:'no-store'}).then(response=>response.json());if(!runs.length){runList.textContent='\uC800\uC7A5\uB41C \uACB0\uACFC\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.';return}runList.replaceChildren();for(const run of runs){const button=document.createElement('button');button.className='run-button';button.type='button';button.innerHTML='<strong>'+esc(run.runId)+'</strong><br><span class="muted">'+esc(run.startedAtKst||'-')+'</span><br><span>checks '+esc(run.completedChecks??'-')+' \xB7 failed '+esc(run.failedChecks??'-')+'</span>';button.addEventListener('click',()=>loadRun(run.runId));runList.appendChild(button)}}
@@ -1450,8 +1492,10 @@ async function startControlDashboard(input) {
   let runId = summary.runId;
   let startedAt = summary.startedAt;
   let currentRunDir;
+  let currentAbortController;
   let running = false;
   let finished = false;
+  let cancelled = false;
   const unsubscribe = eventBus.subscribe((event) => {
     if (event.type === "run.started") {
       results.length = 0;
@@ -1461,6 +1505,7 @@ async function startControlDashboard(input) {
       startedAt = event.startedAt;
       currentRunDir = event.runDir;
       finished = false;
+      cancelled = false;
       running = true;
     }
     if (event.type === "route.discovered") {
@@ -1471,6 +1516,15 @@ async function startControlDashboard(input) {
     if (event.type === "run.finished") {
       summary = event.summary;
       finished = true;
+      cancelled = false;
+      currentAbortController = void 0;
+      running = false;
+    }
+    if (event.type === "run.cancelled") {
+      summary = event.summary;
+      finished = false;
+      cancelled = true;
+      currentAbortController = void 0;
       running = false;
     }
     for (const client of clients) {
@@ -1508,6 +1562,7 @@ data: ${JSON.stringify(event)}
       sendJson(res, 200, {
         running,
         finished,
+        cancelled,
         hasReport: results.length > 0 || Boolean(currentRunDir),
         runId,
         runDir: currentRunDir,
@@ -1568,9 +1623,14 @@ data: ${JSON.stringify(event)}
           browsers: input.browsers,
           headed: input.headed
         });
+        const controller = new AbortController();
+        currentAbortController = controller;
         running = true;
-        void runAudit(runConfig, eventBus).catch((error) => {
+        finished = false;
+        cancelled = false;
+        void runAudit(runConfig, eventBus, { signal: controller.signal }).catch((error) => {
           running = false;
+          currentAbortController = void 0;
           for (const client of clients) {
             client.write(`event: run.error
 data: ${JSON.stringify({
@@ -1587,6 +1647,15 @@ data: ${JSON.stringify({
       }));
       return;
     }
+    if (url.pathname === "/stop" && req.method === "POST") {
+      if (!running || !currentAbortController) {
+        sendJson(res, 409, { success: false, message: "\uC2E4\uD589 \uC911\uC778 \uC810\uAC80\uC774 \uC5C6\uC2B5\uB2C8\uB2E4." });
+        return;
+      }
+      currentAbortController.abort();
+      sendJson(res, 202, { success: true, message: "\uC810\uAC80 \uC911\uC9C0\uB97C \uC694\uCCAD\uD588\uC2B5\uB2C8\uB2E4." });
+      return;
+    }
     if (url.pathname === "/events") {
       res.writeHead(200, {
         "Content-Type": "text/event-stream",
@@ -1600,7 +1669,7 @@ data: ${JSON.stringify({
       return;
     }
     if (url.pathname === "/report") {
-      const currentSummary = finished ? summary : liveSummary({
+      const currentSummary = finished || cancelled ? summary : liveSummary({
         baseURL: input.config.baseURL,
         runId,
         startedAt,

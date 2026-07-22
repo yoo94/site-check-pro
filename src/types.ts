@@ -145,6 +145,7 @@ export interface RouteResult {
 export interface RunSummary {
   runId: string;
   baseURL: string;
+  status?: 'ready' | 'running' | 'completed' | 'cancelled';
   startedAt: string;
   finishedAt: string;
   durationMs: number;
@@ -167,4 +168,5 @@ export type AuditEvent =
   | { type: 'route.discovered'; runId: string; route: string; browser: BrowserName; profile: string; depth: number }
   | { type: 'check.started'; runId: string; route: string; browser: BrowserName | 'node'; profile: string; check: string }
   | { type: 'check.finished'; runId: string; result: CheckResult }
-  | { type: 'run.finished'; runId: string; summary: RunSummary };
+  | { type: 'run.finished'; runId: string; summary: RunSummary }
+  | { type: 'run.cancelled'; runId: string; summary: RunSummary };

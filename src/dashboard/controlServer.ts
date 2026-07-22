@@ -10,6 +10,7 @@ import type { AuditEvent, BrowserName, CheckResult, ResolvedSiteCheckProConfig, 
 const emptySummary = (baseURL: string): RunSummary => ({
   runId: 'ready',
   baseURL,
+  status: 'ready',
   startedAt: new Date().toISOString(),
   finishedAt: '',
   durationMs: 0,
@@ -120,6 +121,7 @@ function liveSummary(input: {
   return {
     runId: input.runId,
     baseURL: input.baseURL,
+    status: 'running',
     startedAt: input.startedAt,
     finishedAt: '',
     durationMs: Number.isNaN(startedAtMs) ? 0 : Date.now() - startedAtMs,
@@ -265,7 +267,7 @@ function renderControlHtml(input: {
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Site Check Pro</title>
 <style>
-:root{font-family:Inter,Pretendard,system-ui,sans-serif;color:#1f2937;background:#f6f7f9}*{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;padding:24px}.shell{width:min(920px,100%);background:#fff;border:1px solid #d9dee7;border-radius:8px;box-shadow:0 18px 48px #20304014;padding:28px}.eyebrow{font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:#2563eb;font-weight:900}h1{margin:8px 0 10px;font-size:30px}.muted{color:#687385;line-height:1.55}.panel{display:grid;gap:18px;margin-top:24px}.field{display:grid;gap:10px}.field>label{font-weight:850}.checks{display:flex;gap:10px;flex-wrap:wrap}.check{height:44px;display:inline-flex;align-items:center;gap:8px;border:1px solid #cfd6e2;border-radius:8px;padding:0 13px;background:#fff;font-weight:850}.check input{width:16px;height:16px}.actions{display:flex;flex-wrap:wrap;gap:10px;margin-top:4px}button,a{height:42px;border-radius:8px;padding:0 14px;font-weight:850;text-decoration:none;display:inline-flex;align-items:center;border:1px solid #cfd6e2;cursor:pointer;background:#fff;color:#27364a}.primary{background:#2563eb;border-color:#2563eb;color:#fff}.danger{color:#b42318}.status{padding:13px 14px;border-radius:8px;background:#f8fafc;border:1px solid #e4e9f0}.status.warning{background:#fff7ed;color:#9a4d00}.status.error{background:#fff0f0;color:#b42318}.status.done{background:#eaf8f1;color:#067647}.meta{display:grid;grid-template-columns:140px 1fr;gap:10px 16px;margin-top:20px;padding:16px;background:#f8fafc;border:1px solid #e4e9f0;border-radius:8px}.meta dt{color:#687385}.meta dd{margin:0;word-break:break-all;font-weight:750}.modal{position:fixed;inset:0;background:#151a23b8;display:none;align-items:center;justify-content:center;padding:24px}.modal.open{display:flex}.dialog{width:min(1040px,100%);max-height:88vh;overflow:hidden;background:#fff;border-radius:8px;display:grid;grid-template-rows:auto 1fr}.dialog-head{padding:18px 22px;border-bottom:1px solid #e7ebf1;display:flex;justify-content:space-between;align-items:center}.dialog-body{display:grid;grid-template-columns:330px 1fr;min-height:520px;overflow:hidden}.run-list{border-right:1px solid #e7ebf1;overflow:auto;padding:12px}.run-button{height:auto;width:100%;display:block;text-align:left;margin-bottom:8px;padding:12px;line-height:1.45}.run-detail{overflow:auto;padding:18px}.summary-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin:12px 0}.summary-grid div{border:1px solid #e7ebf1;border-radius:8px;padding:10px}.summary-grid b{display:block;font-size:22px;margin-top:4px}.result-table{width:100%;border-collapse:collapse;font-size:12px}.result-table th,.result-table td{padding:9px;border-bottom:1px solid #e7ebf1;text-align:left;vertical-align:top}.result-table th{background:#f8fafc}.failed{color:#b42318}.passed{color:#067647}.warning-text{color:#9a4d00}@media(max-width:760px){.dialog-body{grid-template-columns:1fr}.run-list{border-right:0;border-bottom:1px solid #e7ebf1;max-height:260px}.summary-grid{grid-template-columns:repeat(2,1fr)}}
+:root{font-family:Inter,Pretendard,system-ui,sans-serif;color:#1f2937;background:#f6f7f9}*{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;padding:24px}.shell{width:min(920px,100%);background:#fff;border:1px solid #d9dee7;border-radius:8px;box-shadow:0 18px 48px #20304014;padding:28px}.eyebrow{font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:#2563eb;font-weight:900}h1{margin:8px 0 10px;font-size:30px}.muted{color:#687385;line-height:1.55}.panel{display:grid;gap:18px;margin-top:24px}.field{display:grid;gap:10px}.field>label{font-weight:850}.checks{display:flex;gap:10px;flex-wrap:wrap}.check{height:44px;display:inline-flex;align-items:center;gap:8px;border:1px solid #cfd6e2;border-radius:8px;padding:0 13px;background:#fff;font-weight:850}.check input{width:16px;height:16px}.actions{display:flex;flex-wrap:wrap;gap:10px;margin-top:4px}button,a{height:42px;border-radius:8px;padding:0 14px;font-weight:850;text-decoration:none;display:inline-flex;align-items:center;border:1px solid #cfd6e2;cursor:pointer;background:#fff;color:#27364a}.primary{background:#2563eb;border-color:#2563eb;color:#fff}.danger{background:#fff0f0;border-color:#fecdca;color:#b42318}.danger:disabled{opacity:.6;cursor:not-allowed}.status{padding:13px 14px;border-radius:8px;background:#f8fafc;border:1px solid #e4e9f0}.status.warning{background:#fff7ed;color:#9a4d00}.status.error{background:#fff0f0;color:#b42318}.status.done{background:#eaf8f1;color:#067647}.meta{display:grid;grid-template-columns:140px 1fr;gap:10px 16px;margin-top:20px;padding:16px;background:#f8fafc;border:1px solid #e4e9f0;border-radius:8px}.meta dt{color:#687385}.meta dd{margin:0;word-break:break-all;font-weight:750}.modal{position:fixed;inset:0;background:#151a23b8;display:none;align-items:center;justify-content:center;padding:24px}.modal.open{display:flex}.dialog{width:min(1040px,100%);max-height:88vh;overflow:hidden;background:#fff;border-radius:8px;display:grid;grid-template-rows:auto 1fr}.dialog-head{padding:18px 22px;border-bottom:1px solid #e7ebf1;display:flex;justify-content:space-between;align-items:center}.dialog-body{display:grid;grid-template-columns:330px 1fr;min-height:520px;overflow:hidden}.run-list{border-right:1px solid #e7ebf1;overflow:auto;padding:12px}.run-button{height:auto;width:100%;display:block;text-align:left;margin-bottom:8px;padding:12px;line-height:1.45}.run-detail{overflow:auto;padding:18px}.summary-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin:12px 0}.summary-grid div{border:1px solid #e7ebf1;border-radius:8px;padding:10px}.summary-grid b{display:block;font-size:22px;margin-top:4px}.result-table{width:100%;border-collapse:collapse;font-size:12px}.result-table th,.result-table td{padding:9px;border-bottom:1px solid #e7ebf1;text-align:left;vertical-align:top}.result-table th{background:#f8fafc}.failed{color:#b42318}.passed{color:#067647}.warning-text{color:#9a4d00}@media(max-width:760px){.dialog-body{grid-template-columns:1fr}.run-list{border-right:0;border-bottom:1px solid #e7ebf1;max-height:260px}.summary-grid{grid-template-columns:repeat(2,1fr)}}
 </style>
 </head>
 <body>
@@ -287,6 +289,7 @@ function renderControlHtml(input: {
     <div class="actions">
       <button id="saveAuth" type="button">로그인 정보 저장</button>
       <button id="start" class="primary" type="button">점검 시작</button>
+      <button id="stop" class="danger" type="button" disabled>점검 중지</button>
       <button id="currentReport" type="button">현재 점검 확인</button>
       <button id="history" type="button">이전 점검 결과 보기</button>
     </div>
@@ -302,15 +305,16 @@ function renderControlHtml(input: {
   </section>
 </div>
 <script>
-const authStatus=document.querySelector('#authStatus'),runStatus=document.querySelector('#runStatus'),startButton=document.querySelector('#start'),currentReportButton=document.querySelector('#currentReport'),saveAuthButton=document.querySelector('#saveAuth'),historyButton=document.querySelector('#history'),historyModal=document.querySelector('#historyModal'),runList=document.querySelector('#runList'),runDetail=document.querySelector('#runDetail');
+const authStatus=document.querySelector('#authStatus'),runStatus=document.querySelector('#runStatus'),startButton=document.querySelector('#start'),stopButton=document.querySelector('#stop'),currentReportButton=document.querySelector('#currentReport'),saveAuthButton=document.querySelector('#saveAuth'),historyButton=document.querySelector('#history'),historyModal=document.querySelector('#historyModal'),runList=document.querySelector('#runList'),runDetail=document.querySelector('#runDetail');
 function selectedProfiles(){return [...document.querySelectorAll('input[name="profile"]:checked')].map(input=>input.value)}
 function firstLoginProfile(){return selectedProfiles().find(profile=>profile!=='guest')||'member'}
 function setBox(node,type,message){node.className='status '+(type||'');node.textContent=message}
 async function refreshStatus(){const profiles=selectedProfiles();if(!profiles.length){setBox(authStatus,'error','하나 이상의 프로필을 선택하세요.');return}const response=await fetch('/profile-status?profiles='+encodeURIComponent(profiles.join(',')),{cache:'no-store'});const data=await response.json();if(!data.missing.length){setBox(authStatus,'done','선택한 프로필을 점검할 준비가 되었습니다.');return}setBox(authStatus,'warning',data.missing.join(', ')+' 로그인 정보가 없습니다. 점검 시작 전에 로그인 정보 저장을 진행하세요.')}
-async function refreshRunStatus(){const response=await fetch('/run-status',{cache:'no-store'});const data=await response.json();currentReportButton.disabled=!(data.running||data.finished||data.hasReport);if(data.running){setBox(runStatus,'warning','점검 중입니다. 완료될 때까지 잠시 기다려주세요.');startButton.disabled=true;return}if(data.finished){setBox(runStatus,data.failedChecks>0?'warning':'done','점검 완료: '+data.completedChecks+'개 체크, 실패 '+data.failedChecks+'개');startButton.disabled=false;return}setBox(runStatus,'','대기 중입니다.');startButton.disabled=false}
+async function refreshRunStatus(){const response=await fetch('/run-status',{cache:'no-store'});const data=await response.json();currentReportButton.disabled=!(data.running||data.finished||data.cancelled||data.hasReport);stopButton.disabled=!data.running;if(data.running){setBox(runStatus,'warning','점검 중입니다. 완료될 때까지 잠시 기다려주세요.');startButton.disabled=true;return}if(data.cancelled){setBox(runStatus,'warning','점검이 중지되었습니다. 현재까지 저장된 결과를 확인할 수 있습니다.');startButton.disabled=false;return}if(data.finished){setBox(runStatus,data.failedChecks>0?'warning':'done','점검 완료: '+data.completedChecks+'개 체크, 실패 '+data.failedChecks+'개');startButton.disabled=false;return}setBox(runStatus,'','대기 중입니다.');startButton.disabled=false}
 for(const input of document.querySelectorAll('input[name="profile"]'))input.addEventListener('change',refreshStatus);
 saveAuthButton.addEventListener('click',async()=>{const profile=firstLoginProfile();setBox(authStatus,'warning',profile+' 로그인 정보 저장 화면을 여는 중입니다. 저장이 끝날 때까지 이 창을 닫지 마세요.');saveAuthButton.disabled=true;try{const response=await fetch('/auth',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({profile})});const data=await response.json();if(!response.ok)throw new Error(data.message||'로그인 정보 저장 실패');setBox(authStatus,'done','로그인 정보가 저장되었습니다. 저장 경로: '+data.authPath)}catch(error){setBox(authStatus,'error',error instanceof Error?error.message:String(error))}finally{saveAuthButton.disabled=false;refreshStatus()}});
 startButton.addEventListener('click',async()=>{const profiles=selectedProfiles();setBox(runStatus,'warning','점검을 시작하는 중입니다.');startButton.disabled=true;try{const response=await fetch('/start',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({profiles})});const data=await response.json();if(!response.ok)throw new Error(data.message||'점검 시작 실패');window.location.href='/report'}catch(error){setBox(runStatus,'error',error instanceof Error?error.message:String(error));startButton.disabled=false}});
+stopButton.addEventListener('click',async()=>{if(stopButton.disabled)return;setBox(runStatus,'warning','점검 중지를 요청했습니다. 현재 작업을 정리하는 중입니다.');stopButton.disabled=true;try{const response=await fetch('/stop',{method:'POST'});const data=await response.json();if(!response.ok)throw new Error(data.message||'점검 중지 실패')}catch(error){setBox(runStatus,'error',error instanceof Error?error.message:String(error));refreshRunStatus()}});
 currentReportButton.addEventListener('click',()=>{window.location.href='/report'});
 function esc(value){return String(value??'').replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[char]))}
 async function openHistory(){historyModal.classList.add('open');runList.textContent='불러오는 중입니다.';runDetail.textContent='왼쪽에서 결과를 선택하세요.';const runs=await fetch('/runs',{cache:'no-store'}).then(response=>response.json());if(!runs.length){runList.textContent='저장된 결과가 없습니다.';return}runList.replaceChildren();for(const run of runs){const button=document.createElement('button');button.className='run-button';button.type='button';button.innerHTML='<strong>'+esc(run.runId)+'</strong><br><span class="muted">'+esc(run.startedAtKst||'-')+'</span><br><span>checks '+esc(run.completedChecks??'-')+' · failed '+esc(run.failedChecks??'-')+'</span>';button.addEventListener('click',()=>loadRun(run.runId));runList.appendChild(button)}}
@@ -337,8 +341,10 @@ export async function startControlDashboard(input: {
   let runId = summary.runId;
   let startedAt = summary.startedAt;
   let currentRunDir: string | undefined;
+  let currentAbortController: AbortController | undefined;
   let running = false;
   let finished = false;
+  let cancelled = false;
 
   const unsubscribe = eventBus.subscribe((event: AuditEvent) => {
     if (event.type === 'run.started') {
@@ -349,6 +355,7 @@ export async function startControlDashboard(input: {
       startedAt = event.startedAt;
       currentRunDir = event.runDir;
       finished = false;
+      cancelled = false;
       running = true;
     }
     if (event.type === 'route.discovered') {
@@ -359,6 +366,15 @@ export async function startControlDashboard(input: {
     if (event.type === 'run.finished') {
       summary = event.summary;
       finished = true;
+      cancelled = false;
+      currentAbortController = undefined;
+      running = false;
+    }
+    if (event.type === 'run.cancelled') {
+      summary = event.summary;
+      finished = false;
+      cancelled = true;
+      currentAbortController = undefined;
       running = false;
     }
     for (const client of clients) {
@@ -397,6 +413,7 @@ export async function startControlDashboard(input: {
       sendJson(res, 200, {
         running,
         finished,
+        cancelled,
         hasReport: results.length > 0 || Boolean(currentRunDir),
         runId,
         runDir: currentRunDir,
@@ -462,9 +479,14 @@ export async function startControlDashboard(input: {
             browsers: input.browsers,
             headed: input.headed,
           });
+          const controller = new AbortController();
+          currentAbortController = controller;
           running = true;
-          void runAudit(runConfig, eventBus).catch((error) => {
+          finished = false;
+          cancelled = false;
+          void runAudit(runConfig, eventBus, { signal: controller.signal }).catch((error) => {
             running = false;
+            currentAbortController = undefined;
             for (const client of clients) {
               client.write(`event: run.error\ndata: ${JSON.stringify({
                 message: error instanceof Error ? error.message : String(error),
@@ -477,6 +499,15 @@ export async function startControlDashboard(input: {
           success: false,
           message: error instanceof Error ? error.message : String(error),
         }));
+      return;
+    }
+    if (url.pathname === '/stop' && req.method === 'POST') {
+      if (!running || !currentAbortController) {
+        sendJson(res, 409, { success: false, message: '실행 중인 점검이 없습니다.' });
+        return;
+      }
+      currentAbortController.abort();
+      sendJson(res, 202, { success: true, message: '점검 중지를 요청했습니다.' });
       return;
     }
     if (url.pathname === '/events') {
@@ -492,7 +523,7 @@ export async function startControlDashboard(input: {
       return;
     }
     if (url.pathname === '/report') {
-      const currentSummary = finished ? summary : liveSummary({
+      const currentSummary = finished || cancelled ? summary : liveSummary({
         baseURL: input.config.baseURL,
         runId,
         startedAt,

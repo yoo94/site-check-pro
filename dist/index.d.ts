@@ -127,6 +127,7 @@ interface CheckResult {
 interface RunSummary {
     runId: string;
     baseURL: string;
+    status?: 'ready' | 'running' | 'completed' | 'cancelled';
     startedAt: string;
     finishedAt: string;
     durationMs: number;
@@ -171,6 +172,10 @@ type AuditEvent = {
     type: 'run.finished';
     runId: string;
     summary: RunSummary;
+} | {
+    type: 'run.cancelled';
+    runId: string;
+    summary: RunSummary;
 };
 
 declare function defineConfig(config: SiteCheckProConfig): SiteCheckProConfig;
@@ -187,6 +192,8 @@ interface RunResult {
     runDir: string;
     eventBus: AuditEventBus;
 }
-declare function runAudit(config: ResolvedSiteCheckProConfig, eventBus?: AuditEventBus): Promise<RunResult>;
+declare function runAudit(config: ResolvedSiteCheckProConfig, eventBus?: AuditEventBus, options?: {
+    signal?: AbortSignal;
+}): Promise<RunResult>;
 
 export { type ApiCheckConfig, type AuditEvent, AuditEventBus, type AuthProfileConfig, type BrowserName, type CheckResult, type ResolvedSiteCheckProConfig, type RunSummary, type SiteCheckProConfig, type WebServerConfig, defineConfig, loadConfig, resolveConfig, runAudit };

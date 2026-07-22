@@ -6,6 +6,7 @@ export function createSummary(input: {
   startedAt: number;
   results: CheckResult[];
   discoveredRoutes: Set<string>;
+  status?: RunSummary['status'];
 }): RunSummary {
   const { runId, baseURL, startedAt, results, discoveredRoutes } = input;
   const failed = results.filter((result) => result.status === 'failed');
@@ -26,6 +27,7 @@ export function createSummary(input: {
   return {
     runId,
     baseURL,
+    status: input.status ?? 'completed',
     startedAt: new Date(startedAt).toISOString(),
     finishedAt: new Date(finishedAt).toISOString(),
     durationMs: finishedAt - startedAt,

@@ -20,7 +20,26 @@ export interface RunResult {
   eventBus: AuditEventBus;
 }
 
-export async function runAudit(config: ResolvedSiteCheckProConfig, eventBus = new AuditEventBus()): Promise<RunResult> {
+class AuditCancelledError extends Error {
+  constructor() {
+    super('사이트 점검이 중지되었습니다.');
+    this.name = 'AuditCancelledError';
+  }
+}
+
+function throwIfAborted(signal?: AbortSignal): void {
+  if (signal?.aborted) throw new AuditCancelledError();
+}
+
+function isAuditCancelled(error: unknown): boolean {
+  return error instanceof AuditCancelledError;
+}
+
+export async function runAudit(
+  config: ResolvedSiteCheckProConfig,
+  eventBus = new AuditEventBus(),
+  options: { signal?: AbortSignal } = {},
+): Promise<RunResult> {
   const runId = `${new Date().toISOString().replace(/[:.]/g, '-')}-${randomUUID().slice(0, 8)}`;
   const startedAt = Date.now();
   const store = new JsonlStore(config.outputDir, runId);
@@ -44,6 +63,7 @@ export async function runAudit(config: ResolvedSiteCheckProConfig, eventBus = ne
   };
   store.appendEvent(startEvent);
   eventBus.publish(startEvent);
+  let status: RunSummary['status'] = 'completed';
 
   const publishFailure = (input: {
     browser: BrowserName;
@@ -78,9 +98,11 @@ export async function runAudit(config: ResolvedSiteCheckProConfig, eventBus = ne
   };
 
   try {
+    throwIfAborted(options.signal);
     webServer = await startConfiguredWebServer(config);
 
     for (const browserName of config.browsers) {
+      throwIfAborted(options.signal);
       let browser: Browser;
       try {
         browser = await browserTypes[browserName].launch({
@@ -99,8 +121,14 @@ export async function runAudit(config: ResolvedSiteCheckProConfig, eventBus = ne
         continue;
       }
 
+      const closeBrowserOnAbort = () => {
+        void browser.close().catch(() => undefined);
+      };
+      options.signal?.addEventListener('abort', closeBrowserOnAbort, { once: true });
+
       try {
         for (const [profileName, profile] of Object.entries(config.profiles)) {
+          throwIfAborted(options.signal);
           const contextOptions: BrowserContextOptions = {};
           if (profile.storageState) contextOptions.storageState = path.resolve(profile.storageState);
 
@@ -126,6 +154,7 @@ export async function runAudit(config: ResolvedSiteCheckProConfig, eventBus = ne
             const seen = new Set<string>();
 
             while (queue.length > 0 && seen.size < config.crawl.maxPages) {
+              throwIfAborted(options.signal);
               const item = queue.shift();
               if (!item || seen.has(item.url) || item.depth > config.crawl.maxDepth) continue;
               seen.add(item.url);
@@ -150,6 +179,7 @@ export async function runAudit(config: ResolvedSiteCheckProConfig, eventBus = ne
                 eventBus,
                 artifactsDir: store.artifactsDir,
               });
+              throwIfAborted(options.signal);
 
               for (const link of routeResult.discoveredLinks) {
                 if (!seen.has(link) && seen.size + queue.length < config.crawl.maxPages) {
@@ -158,24 +188,32 @@ export async function runAudit(config: ResolvedSiteCheckProConfig, eventBus = ne
               }
             }
           } finally {
-            await context.close();
+            await context.close().catch(() => undefined);
           }
         }
       } finally {
-        await browser.close();
+        options.signal?.removeEventListener('abort', closeBrowserOnAbort);
+        await browser.close().catch(() => undefined);
       }
     }
 
-    await auditApis(runId, config, eventBus);
+    throwIfAborted(options.signal);
+    await auditApis(runId, config, eventBus, options.signal);
+    throwIfAborted(options.signal);
+  } catch (error) {
+    if (!isAuditCancelled(error) && !options.signal?.aborted) throw error;
+    status = 'cancelled';
   } finally {
     unsubscribe();
     await webServer?.close();
   }
 
-  const summary = createSummary({ runId, baseURL: config.baseURL, startedAt, results, discoveredRoutes });
+  const summary = createSummary({ runId, baseURL: config.baseURL, startedAt, results, discoveredRoutes, status });
   store.saveSummary(summary);
   writeHtmlReport(store.runDir, summary, results);
-  const finishEvent = { type: 'run.finished' as const, runId, summary };
+  const finishEvent = status === 'cancelled'
+    ? { type: 'run.cancelled' as const, runId, summary }
+    : { type: 'run.finished' as const, runId, summary };
   store.appendEvent(finishEvent);
   eventBus.publish(finishEvent);
   return { summary, runDir: store.runDir, eventBus };
