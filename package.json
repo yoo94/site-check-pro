@@ -1,7 +1,7 @@
 {
   "name": "site-check-pro",
   "version": "0.1.12",
-  "description": "Framework-agnostic website inspection, live progress, and reports powered by Playwright.",
+  "description": "Playwright-powered website smoke testing with route crawling, page/API checks, live dashboard, and HTML reports.",
   "type": "module",
   "bin": {
     "site-check-pro": "dist/cli.js"
